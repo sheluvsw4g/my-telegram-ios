@@ -40,6 +40,7 @@ public func _internal_deleteMessages(transaction: Transaction, mediaBox: MediaBo
                     }
                     return .update(StoreMessage(
                         id: currentMessage.id,
+                        customStableId: nil,
                         globallyUniqueId: currentMessage.globallyUniqueId,
                         groupingKey: currentMessage.groupingKey,
                         threadId: currentMessage.threadId,
@@ -48,9 +49,7 @@ public func _internal_deleteMessages(transaction: Transaction, mediaBox: MediaBo
                         tags: currentMessage.tags,
                         globalTags: currentMessage.globalTags,
                         localTags: currentMessage.localTags,
-                        forwardInfo: currentMessage.forwardInfo.flatMap { forwardInfo in
-                            StoreMessageForwardInfo(authorId: forwardInfo.author?.id, sourceId: forwardInfo.source?.id, sourceMessageId: forwardInfo.sourceMessageId, date: forwardInfo.date, authorSignature: forwardInfo.authorSignature, psaType: forwardInfo.psaType, flags: forwardInfo.flags)
-                        },
+                        forwardInfo: currentMessage.forwardInfo.flatMap(StoreMessageForwardInfo.init),
                         authorId: currentMessage.author?.id,
                         text: updatedText,
                         attributes: currentMessage.attributes,
