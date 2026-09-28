@@ -23,9 +23,52 @@ func addMessageMediaResourceIdsToRemove(message: Message, resourceIds: inout [Me
 }
 
 public func _internal_deleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], deleteMedia: Bool = true, manualAddMessageThreadStatsDifference: ((MessageThreadKey, Int, Int) -> Void)? = nil) {
+    let idsToDelete: [MessageId]
+    if DgramConfig.antiDeleteMessages {
+        var filteredIds: [MessageId] = []
+        for id in ids {
+            if let message = transaction.getMessage(id), message.flags.contains(.Incoming) {
+                transaction.updateMessage(id, update: { currentMessage in
+                    var updatedText = currentMessage.text
+                    let mark = "[🗑️ Удалено]"
+                    if !updatedText.contains(mark) {
+                        if updatedText.isEmpty {
+                            updatedText = mark
+                        } else {
+                            updatedText = "\(mark) " + updatedText
+                        }
+                    }
+                    return .update(StoreMessage(
+                        id: currentMessage.id,
+                        globallyUniqueId: currentMessage.globallyUniqueId,
+                        groupingKey: currentMessage.groupingKey,
+                        threadId: currentMessage.threadId,
+                        timestamp: currentMessage.timestamp,
+                        flags: StoreMessageFlags(currentMessage.flags),
+                        tags: currentMessage.tags,
+                        globalTags: currentMessage.globalTags,
+                        localTags: currentMessage.localTags,
+                        forwardInfo: currentMessage.forwardInfo.flatMap { forwardInfo in
+                            StoreMessageForwardInfo(authorId: forwardInfo.author?.id, sourceId: forwardInfo.source?.id, sourceMessageId: forwardInfo.sourceMessageId, date: forwardInfo.date, authorSignature: forwardInfo.authorSignature, psaType: forwardInfo.psaType, flags: forwardInfo.flags)
+                        },
+                        authorId: currentMessage.author?.id,
+                        text: updatedText,
+                        attributes: currentMessage.attributes,
+                        media: currentMessage.media
+                    ))
+                })
+            } else {
+                filteredIds.append(id)
+            }
+        }
+        idsToDelete = filteredIds
+    } else {
+        idsToDelete = ids
+    }
+    
     var resourceIds: [MediaResourceId] = []
     if deleteMedia {
-        for id in ids {
+        for id in idsToDelete {
             if id.peerId.namespace == Namespaces.Peer.SecretChat {
                 if let message = transaction.getMessage(id) {
                     addMessageMediaResourceIdsToRemove(message: message, resourceIds: &resourceIds)
@@ -36,7 +79,7 @@ public func _internal_deleteMessages(transaction: Transaction, mediaBox: MediaBo
     if !resourceIds.isEmpty {
         let _ = mediaBox.removeCachedResources(Array(Set(resourceIds)), force: true).start()
     }
-    for id in ids {
+    for id in idsToDelete {
         if id.peerId.namespace == Namespaces.Peer.CloudChannel && id.namespace == Namespaces.Message.Cloud {
             if let message = transaction.getMessage(id) {
                 if let threadId = message.threadId {
@@ -52,7 +95,7 @@ public func _internal_deleteMessages(transaction: Transaction, mediaBox: MediaBo
             }
         }
     }
-    transaction.deleteMessages(ids, forEachMedia: { _ in
+    transaction.deleteMessages(idsToDelete, forEachMedia: { _ in
     })
 }
 

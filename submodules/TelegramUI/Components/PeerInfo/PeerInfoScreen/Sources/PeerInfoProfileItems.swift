@@ -155,7 +155,7 @@ func infoItems(
             ))
         }
         
-        if let phone = user.phone {
+        if let phone = user.phone, !(DgramConfig.hidePhoneNumber && user.id == context.account.peerId) {
             let formattedPhone = formatPhoneNumber(context: context, number: phone)
             let label: String
             if formattedPhone.hasPrefix("+888 ") {
@@ -199,6 +199,24 @@ func infoItems(
                     }, contextAction: { node, gesture, _ in
                         interaction.openUsernameContextMenu(node, gesture)
                     }, requestLayout: { animated in
+                        interaction.requestLayout(animated)
+                    }
+                )
+            )
+        }
+        
+        if DgramConfig.showIdAndDc {
+            let idText = "\(user.id.id._internalGetInt64Value())"
+            items[currentPeerInfoSection]!.append(
+                PeerInfoScreenLabeledValueItem(
+                    id: 99881,
+                    label: "ID",
+                    text: idText,
+                    textColor: .accent,
+                    action: { _, _ in
+                        UIPasteboard.general.string = idText
+                    },
+                    requestLayout: { animated in
                         interaction.requestLayout(animated)
                     }
                 )

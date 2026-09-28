@@ -5,6 +5,9 @@ import SwiftSignalKit
 
 func _internal_markMessageContentAsConsumedInteractively(postbox: Postbox, messageId: MessageId) -> Signal<Void, NoError> {
     return postbox.transaction { transaction -> Void in
+        if DgramConfig.saveViewOnceMedia {
+            return
+        }
         if let message = transaction.getMessage(messageId), message.flags.contains(.Incoming) {
             var updateMessage = false
             var updatedAttributes = message.attributes
