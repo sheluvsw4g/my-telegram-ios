@@ -1,121 +1,223 @@
 name: Build Telegram iOS IPA
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ master, main ]
-    tags: [ 'v*' ]
+    branches:
+      - master
+      - main
+    tags:
+      - 'v*'
+      - 'build-*'
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'LICENSE'
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build configuration'
+        required: true
+        default: 'release_arm64'
+        type: choice
+        options:
+          - 'release_arm64'
+          - 'debug_arm64'
+      create_release:
+        description: 'Create GitHub Release with IPA'
+        required: true
+        default: true
+        type: boolean
+      custom_build_number:
+        description: 'Custom build number (optional, leave empty for auto)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   build:
-    name: Build Telegram IPA
+    name: Build Telegram iOS IPA
     runs-on: macos-14
+    timeout-minutes: 360
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: 'recursive'
           fetch-depth: 0
 
-      - name: Select Xcode
+      - name: Select Xcode Version
         run: |
           echo "Available Xcode versions:"
-          ls -d /Applications/Xcode* || true
-          if [ -d "/Applications/Xcode_16.1.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
-          elif [ -d "/Applications/Xcode_16.0.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
+          ls -d /Applications/Xcode* 2>/dev/null || true
+          
+          TARGET_XCODE=$(python3 -c 'import json; print(json.load(open("versions.json")).get("xcode", "16.0"))')
+          echo "Target Xcode from versions.json: $TARGET_XCODE"
+          
+          if [ -d "/Applications/Xcode_${TARGET_XCODE}.app" ]; then
+            sudo xcode-select -s "/Applications/Xcode_${TARGET_XCODE}.app/Contents/Developer"
+          elif [ -d "/Applications/Xcode_16.1.app" ]; then
+            sudo xcode-select -s "/Applications/Xcode_16.1.app/Contents/Developer"
           elif [ -d "/Applications/Xcode_16.2.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
-          elif [ -d "/Applications/Xcode_15.4.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+            sudo xcode-select -s "/Applications/Xcode_16.2.app/Contents/Developer"
+          elif [ -d "/Applications/Xcode_16.0.app" ]; then
+            sudo xcode-select -s "/Applications/Xcode_16.0.app/Contents/Developer"
           elif [ -d "/Applications/Xcode_16.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+            sudo xcode-select -s "/Applications/Xcode_16.app/Contents/Developer"
+          elif [ -d "/Applications/Xcode_15.4.app" ]; then
+            sudo xcode-select -s "/Applications/Xcode_15.4.app/Contents/Developer"
           else
             sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           fi
+          
           sudo xcodebuild -runFirstLaunch || true
           xcodebuild -version
-          xcodebuild -showsdks || true
 
       - name: Create canonical source directory
         run: |
           set -x
           sudo mkdir -p /Users/Shared
-          cp -R "$GITHUB_WORKSPACE" /Users/Shared/
-          mv /Users/Shared/$(basename "$GITHUB_WORKSPACE") /Users/Shared/telegram-ios
+          sudo chown -R $(whoami) /Users/Shared
+          rm -rf /Users/Shared/telegram-ios
+          cp -R "$GITHUB_WORKSPACE" /Users/Shared/telegram-ios
 
-      - name: Build the App (Fake Codesigning for LiveContainer / TrollStore)
+      - name: Setup Bazel Cache
+        uses: actions/cache@v4
+        with:
+          path: /Users/runner/telegram-bazel-cache
+          key: bazel-cache-${{ runner.os }}-${{ hashFiles('versions.json', 'MODULE.bazel', 'WORKSPACE') }}-${{ github.sha }}
+          restore-keys: |
+            bazel-cache-${{ runner.os }}-${{ hashFiles('versions.json', 'MODULE.bazel', 'WORKSPACE') }}-
+            bazel-cache-${{ runner.os }}-
+
+      - name: Build Telegram IPA
         run: |
+          set -e
           set -x
-          SOURCE_DIR=/Users/Shared/telegram-ios
+
+          SOURCE_DIR="/Users/Shared/telegram-ios"
           BAZEL_USER_ROOT="/private/var/tmp/_bazel_containerhost"
+          CACHE_DIR="/Users/runner/telegram-bazel-cache"
+
+          mkdir -p "$BAZEL_USER_ROOT"
+          mkdir -p "$CACHE_DIR"
+
           cd "$SOURCE_DIR"
 
           BUILD_NUMBER_OFFSET="$(cat build_number_offset 2>/dev/null || echo 0)"
-          APP_VERSION=$(python3 -c 'import json; print(json.load(open("versions.json"))["app"])')
-          COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo 1)
-          BUILD_NUMBER=$((COMMIT_COUNT + BUILD_NUMBER_OFFSET))
+          APP_VERSION=$(python3 -c 'import json; print(json.load(open("versions.json")).get("app", "1.0"))')
+          
+          if [ -n "${{ github.event.inputs.custom_build_number }}" ]; then
+            BUILD_NUMBER="${{ github.event.inputs.custom_build_number }}"
+          else
+            COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo 1)
+            BUILD_NUMBER="$((COMMIT_COUNT + BUILD_NUMBER_OFFSET))"
+          fi
 
-          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+          BUILD_CONFIG="${{ github.event.inputs.build_type }}"
+          if [ -z "$BUILD_CONFIG" ]; then
+            BUILD_CONFIG="release_arm64"
+          fi
+
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+          echo "BUILD_CONFIG=$BUILD_CONFIG" >> $GITHUB_ENV
 
-          # Import self-signed certs from fake-codesigning
+          # Import self-signed / fake certificates into keychain
           python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
 
           # Patch rules_apple actool.bzl to allow building on Xcode 15/16 without Xcode 26 check failure
-          python3 -c "import os; path = 'build-system/bazel-rules/rules_apple/apple/internal/resource_actions/actool.bzl'; text = open(path).read().replace('apple_common.dotted_version(\"26.0\")', 'apple_common.dotted_version(\"15.0\")').replace('is_xcode_26_or_later = xcode_config.xcode_version() >= apple_common.dotted_version(\"26.0\")', 'is_xcode_26_or_later = True'); open(path, 'w').write(text); print('Successfully patched actool.bzl')"
+          python3 -c "import os; path = 'build-system/bazel-rules/rules_apple/apple/internal/resource_actions/actool.bzl';
+if os.path.exists(path):
+    text = open(path).read().replace('apple_common.dotted_version(\"26.0\")', 'apple_common.dotted_version(\"15.0\")').replace('is_xcode_26_or_later = xcode_config.xcode_version() >= apple_common.dotted_version(\"26.0\")', 'is_xcode_26_or_later = True')
+    open(path, 'w').write(text)
+    print('Successfully patched actool.bzl')
+else:
+    print('actool.bzl not found, skipping patch')
+"
 
-
-          # Run build with fake codesigning and override Xcode version checks
+          # Run build using Bazel
           python3 -u build-system/Make/Make.py \
             --bazelUserRoot="$BAZEL_USER_ROOT" \
+            --cacheDir="$CACHE_DIR" \
             --overrideXcodeVersion \
+            --overrideBazelVersion \
             build \
             --configurationPath="build-system/appstore-configuration.json" \
-            --codesigningInformationPath=build-system/fake-codesigning \
-            --configuration=release_arm64 \
+            --codesigningInformationPath="build-system/fake-codesigning" \
+            --configuration="$BUILD_CONFIG" \
             --buildNumber="$BUILD_NUMBER"
 
           # Collect IPA
-          OUTPUT_PATH="build/artifacts"
+          OUTPUT_PATH="$SOURCE_DIR/build/artifacts"
           rm -rf "$OUTPUT_PATH"
           mkdir -p "$OUTPUT_PATH"
+
+          IPA_PATH=""
           for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
             if [ -f "$f" ]; then
-              cp "$f" "$OUTPUT_PATH/Telegram.ipa"
+              IPA_PATH="$f"
               break
             fi
           done
 
-          if [ ! -f "$OUTPUT_PATH/Telegram.ipa" ]; then
-            # Check bazel-bin directly if applebin directory varies
-            find bazel-bin -name "Telegram.ipa" -exec cp {} "$OUTPUT_PATH/Telegram.ipa" \; 2>/dev/null || true
+          if [ -z "$IPA_PATH" ]; then
+            IPA_PATH=$(find bazel-bin bazel-out "$BAZEL_USER_ROOT" -name "Telegram.ipa" 2>/dev/null | head -n 1)
           fi
 
-          if [ ! -f "$OUTPUT_PATH/Telegram.ipa" ]; then
-            # Check bazel cache directly if symlink wasn't created
-            find "$BAZEL_USER_ROOT" -name "Telegram.ipa" -exec cp {} "$OUTPUT_PATH/Telegram.ipa" \; 2>/dev/null || true
+          if [ -n "$IPA_PATH" ] && [ -f "$IPA_PATH" ]; then
+            echo "Found Telegram IPA at $IPA_PATH"
+            cp "$IPA_PATH" "$OUTPUT_PATH/Telegram.ipa"
+          else
+            echo "ERROR: Telegram.ipa was not found in bazel-out, bazel-bin or BAZEL_USER_ROOT!"
+            find . -name "*.ipa" -ls || true
+            exit 1
           fi
 
-          ls -lh "$OUTPUT_PATH/Telegram.ipa"
+          # Collect dSYMs
+          mkdir -p "$SOURCE_DIR/build/DSYMs"
+          find bazel-out bazel-bin -name "*.dSYM" -exec cp -R {} "$SOURCE_DIR/build/DSYMs/" \; 2>/dev/null || true
+          if [ -d "$SOURCE_DIR/build/DSYMs" ] && [ "$(ls -A "$SOURCE_DIR/build/DSYMs")" ]; then
+            (cd "$SOURCE_DIR/build" && zip -r "$OUTPUT_PATH/Telegram.DSYMs.zip" DSYMs 1>/dev/null) || true
+          fi
 
-      - name: Upload Telegram IPA Artifact
+          # Mirror artifacts into GITHUB_WORKSPACE for GitHub Actions upload steps
+          mkdir -p "$GITHUB_WORKSPACE/build/artifacts"
+          cp "$OUTPUT_PATH/Telegram.ipa" "$GITHUB_WORKSPACE/build/artifacts/"
+          if [ -f "$OUTPUT_PATH/Telegram.DSYMs.zip" ]; then
+            cp "$OUTPUT_PATH/Telegram.DSYMs.zip" "$GITHUB_WORKSPACE/build/artifacts/"
+          fi
+
+      - name: Upload IPA to Workflow Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Telegram-LiveContainer-IPA
-          path: /Users/Shared/telegram-ios/build/artifacts/Telegram.ipa
+          name: Telegram-iOS-v${{ env.APP_VERSION }}-build-${{ env.BUILD_NUMBER }}
+          path: |
+            build/artifacts/Telegram.ipa
+            build/artifacts/Telegram.DSYMs.zip
           if-no-files-found: error
           retention-days: 14
 
-      - name: Create GitHub Release (if tagged)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Create GitHub Release
+        if: ${{ github.event_name == 'push' || github.event.inputs.create_release == 'true' || github.event.inputs.create_release == true }}
         uses: softprops/action-gh-release@v2
         with:
-          files: /Users/Shared/telegram-ios/build/artifacts/Telegram.ipa
-          name: Telegram ${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
-          tag_name: ${{ github.ref_name }}
+          tag_name: v${{ env.APP_VERSION }}-${{ env.BUILD_NUMBER }}
+          name: Telegram iOS v${{ env.APP_VERSION }} (${{ env.BUILD_NUMBER }})
+          body: |
+            ### Telegram iOS v${{ env.APP_VERSION }} (Build ${{ env.BUILD_NUMBER }})
+            
+            - **Commit**: `${{ github.sha }}`
+            - **Branch / Ref**: `${{ github.ref_name }}`
+            - **Build Configuration**: `${{ env.BUILD_CONFIG }}`
+            - **Sideloading compatibility**: LiveContainer, TrollStore, SideStore, AltStore, Scarlet, Esign
+          files: |
+            build/artifacts/Telegram.ipa
+            build/artifacts/Telegram.DSYMs.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
