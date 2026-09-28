@@ -94,7 +94,12 @@ jobs:
 
           if [ ! -f "$OUTPUT_PATH/Telegram.ipa" ]; then
             # Check bazel-bin directly if applebin directory varies
-            find bazel-bin -name "Telegram.ipa" -exec cp {} "$OUTPUT_PATH/Telegram.ipa" \;
+            find bazel-bin -name "Telegram.ipa" -exec cp {} "$OUTPUT_PATH/Telegram.ipa" \; 2>/dev/null || true
+          fi
+
+          if [ ! -f "$OUTPUT_PATH/Telegram.ipa" ]; then
+            # Check bazel cache directly if symlink wasn't created
+            find "$BAZEL_USER_ROOT" -name "Telegram.ipa" -exec cp {} "$OUTPUT_PATH/Telegram.ipa" \; 2>/dev/null || true
           fi
 
           ls -lh "$OUTPUT_PATH/Telegram.ipa"
