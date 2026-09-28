@@ -130,14 +130,10 @@ jobs:
           python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
 
           # Patch rules_apple actool.bzl to allow building on Xcode 15/16 without Xcode 26 check failure
-          python3 -c "import os; path = 'build-system/bazel-rules/rules_apple/apple/internal/resource_actions/actool.bzl';
-if os.path.exists(path):
-    text = open(path).read().replace('apple_common.dotted_version(\"26.0\")', 'apple_common.dotted_version(\"15.0\")').replace('is_xcode_26_or_later = xcode_config.xcode_version() >= apple_common.dotted_version(\"26.0\")', 'is_xcode_26_or_later = True')
-    open(path, 'w').write(text)
-    print('Successfully patched actool.bzl')
-else:
-    print('actool.bzl not found, skipping patch')
-"
+          ACTOOL_BZL="build-system/bazel-rules/rules_apple/apple/internal/resource_actions/actool.bzl"
+          if [ -f "$ACTOOL_BZL" ]; then
+            python3 -c 'import sys; p = sys.argv[1]; t = open(p).read().replace("apple_common.dotted_version(\"26.0\")", "apple_common.dotted_version(\"15.0\")").replace("is_xcode_26_or_later = xcode_config.xcode_version() >= apple_common.dotted_version(\"26.0\")", "is_xcode_26_or_later = True"); open(p, "w").write(t); print("Patched actool.bzl")' "$ACTOOL_BZL"
+          fi
 
           # Run build using Bazel
           python3 -u build-system/Make/Make.py \
