@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     name: Build Telegram IPA
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout Repository
@@ -25,8 +25,17 @@ jobs:
         run: |
           echo "Available Xcode versions:"
           ls -d /Applications/Xcode* || true
-          # Use default or latest installed Xcode on macos-14 runner
-          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          if [ -d "/Applications/Xcode_16.2.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+          elif [ -d "/Applications/Xcode_16.1.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
+          elif [ -d "/Applications/Xcode_16.0.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
+          elif [ -d "/Applications/Xcode_16.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+          else
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          fi
           xcodebuild -version
 
       - name: Create canonical source directory
@@ -53,6 +62,18 @@ jobs:
 
           # Import self-signed certs from fake-codesigning
           python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+
+          # Patch rules_apple actool.bzl to allow building on Xcode 15/16 without Xcode 26 check failure
+          python3 -c '
+import os
+path = "build-system/bazel-rules/rules_apple/apple/internal/resource_actions/actool.bzl"
+if os.path.exists(path):
+    text = open(path).read()
+    text = text.replace("apple_common.dotted_version(\"26.0\")", "apple_common.dotted_version(\"15.0\")")
+    text = text.replace("is_xcode_26_or_later = xcode_config.xcode_version() >= apple_common.dotted_version(\"26.0\")", "is_xcode_26_or_later = True")
+    open(path, "w").write(text)
+    print("Successfully patched actool.bzl")
+'
 
           # Run build with fake codesigning and override Xcode version checks
           python3 -u build-system/Make/Make.py \
