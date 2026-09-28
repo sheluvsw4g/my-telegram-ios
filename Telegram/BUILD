@@ -1776,6 +1776,7 @@ ios_application(
         ":VersionInfoPlist",
         ":RequiredDeviceCapabilitiesPlist",
         ":UrlTypesInfoPlist",
+    ],
     alternate_icons = [
         ":{}".format(name) for name in alternate_icon_folders
     ],
