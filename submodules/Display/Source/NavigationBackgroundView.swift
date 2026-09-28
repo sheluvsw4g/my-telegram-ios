@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 import AsyncDisplayKit
 
-private var sharedIsReduceTransparencyEnabled = UIAccessibility.isReduceTransparencyEnabled
+private var sharedIsReduceTransparencyEnabled = true
 
 public final class NavigationBackgroundNode: ASDisplayNode {
     private var _color: UIColor
@@ -34,8 +34,8 @@ public final class NavigationBackgroundNode: ASDisplayNode {
 
     public init(color: UIColor, enableBlur: Bool = true, enableSaturation: Bool = true, customBlurRadius: CGFloat? = nil) {
         self._color = .clear
-        self.enableBlur = enableBlur
-        self.enableSaturation = enableSaturation
+        self.enableBlur = false
+        self.enableSaturation = false
         self.customBlurRadius = customBlurRadius
 
         self.backgroundNode = ASDisplayNode()
@@ -64,49 +64,7 @@ public final class NavigationBackgroundNode: ASDisplayNode {
             self.scheduledUpdate = true
             return
         }
-        if self.enableBlur && !sharedIsReduceTransparencyEnabled && ((self._color.alpha > .ulpOfOne && self._color.alpha < 0.95) || forceKeepBlur) {
-            if self.effectView == nil {
-                let effectView = UIVisualEffectView(effect: UIBlurEffect(style: .light))
-
-                for subview in effectView.subviews {
-                    if subview.description.contains("VisualEffectSubview") {
-                        subview.isHidden = true
-                    }
-                }
-
-                if let sublayer = effectView.layer.sublayers?[0], let filters = sublayer.filters {
-                    sublayer.backgroundColor = nil
-                    sublayer.isOpaque = false
-                    var allowedKeys: [String] = [
-                        "gaussianBlur"
-                    ]
-                    if self.enableSaturation {
-                        allowedKeys.append("colorSaturate")
-                    }
-                    sublayer.filters = filters.filter { filter in
-                        guard let filter = filter as? NSObject else {
-                            return true
-                        }
-                        let filterName = String(describing: filter)
-                        if !allowedKeys.contains(filterName) {
-                            return false
-                        }
-                        if let customBlurRadius = self.customBlurRadius, filterName == "gaussianBlur" {
-                            filter.setValue(customBlurRadius as NSNumber, forKey: "inputRadius")
-                        }
-                        return true
-                    }
-                }
-
-                if let (size, cornerRadius) = self.validLayout {
-                    effectView.frame = CGRect(origin: CGPoint(), size: size)
-                    ContainedViewLayoutTransition.immediate.updateCornerRadius(layer: effectView.layer, cornerRadius: cornerRadius)
-                    effectView.clipsToBounds = !cornerRadius.isZero
-                }
-                self.effectView = effectView
-                self.view.insertSubview(effectView, at: 0)
-            }
-        } else if let effectView = self.effectView {
+        if let effectView = self.effectView {
             self.effectView = nil
             effectView.removeFromSuperview()
         }
@@ -196,7 +154,7 @@ open class BlurredBackgroundView: UIView {
 
     public init(color: UIColor?, enableBlur: Bool = true, customBlurRadius: CGFloat? = nil) {
         self._color = nil
-        self.enableBlur = enableBlur
+        self.enableBlur = false
         self.customBlurRadius = customBlurRadius
 
         self.backgroundView = UIView()
@@ -215,48 +173,7 @@ open class BlurredBackgroundView: UIView {
     }
     
     private func updateBackgroundBlur(forceKeepBlur: Bool) {
-        if let color = self._color, self.enableBlur && !sharedIsReduceTransparencyEnabled && ((color.alpha > .ulpOfOne && color.alpha < 0.95) || forceKeepBlur) {
-            if self.effectView == nil {
-                let effectView = UIVisualEffectView(effect: UIBlurEffect(style: .light))
-
-                for subview in effectView.subviews {
-                    if subview.description.contains("VisualEffectSubview") {
-                        subview.isHidden = true
-                    }
-                }
-
-                if let sublayer = effectView.layer.sublayers?[0], let filters = sublayer.filters {
-                    sublayer.backgroundColor = nil
-                    sublayer.isOpaque = false
-                    //sublayer.setValue(true as NSNumber, forKey: "allowsInPlaceFiltering")
-                    let allowedKeys: [String] = [
-                        "colorSaturate",
-                        "gaussianBlur"
-                    ]
-                    sublayer.filters = filters.filter { filter in
-                        guard let filter = filter as? NSObject else {
-                            return true
-                        }
-                        let filterName = String(describing: filter)
-                        if !allowedKeys.contains(filterName) {
-                            return false
-                        }
-                        if let customBlurRadius = self.customBlurRadius, filterName == "gaussianBlur" {
-                            filter.setValue(customBlurRadius as NSNumber, forKey: "inputRadius")
-                        }
-                        return true
-                    }
-                }
-
-                if let (size, cornerRadius) = self.validLayout {
-                    effectView.frame = CGRect(origin: CGPoint(), size: size)
-                    ContainedViewLayoutTransition.immediate.updateCornerRadius(layer: effectView.layer, cornerRadius: cornerRadius)
-                    effectView.clipsToBounds = !cornerRadius.isZero
-                }
-                self.effectView = effectView
-                self.insertSubview(effectView, at: 0)
-            }
-        } else if let effectView = self.effectView {
+        if let effectView = self.effectView {
             self.effectView = nil
             effectView.removeFromSuperview()
         }

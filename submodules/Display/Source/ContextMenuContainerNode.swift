@@ -28,13 +28,7 @@ public final class ContextMenuContainerNode: ASDisplayNode {
         
         super.init()
         
-        if isBlurred {
-            let effectView = UIVisualEffectView(effect: UIBlurEffect(style: isDark ? .dark : .light))
-            self.containerNode.view.addSubview(effectView)
-            self.effectView = effectView
-        } else {
-            self.containerNode.backgroundColor = isDark ? UIColor(rgb: 0x2f2f2f) : UIColor(rgb: 0xF8F8F6)
-        }
+        self.containerNode.backgroundColor = isDark ? UIColor(rgb: 0x2f2f2f) : UIColor(rgb: 0xF8F8F6)
         
         self.layer.shadowColor = UIColor.black.cgColor
         self.layer.shadowRadius = 10.0

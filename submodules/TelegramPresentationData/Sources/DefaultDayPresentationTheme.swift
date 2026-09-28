@@ -6,13 +6,7 @@ import TelegramUIPreferences
 import SwiftSignalKit
 
 public func selectDateFillStaticColor(theme: PresentationTheme, wallpaper: TelegramWallpaper) -> UIColor {
-    if case .color(0xffffff) = wallpaper {
-        return theme.chat.serviceMessage.components.withDefaultWallpaper.dateFillStatic
-    } else if case .builtin = wallpaper {
-        return UIColor(rgb: 0x748391, alpha: 0.45)
-    } else {
-        return theme.chat.serviceMessage.components.withCustomWallpaper.dateFillStatic
-    }
+    return UIColor(rgb: 0x5a8fb8, alpha: 0.6)
 }
 
 public func selectReactionFillStaticColor(theme: PresentationTheme, wallpaper: TelegramWallpaper, isStars: Bool = false) -> UIColor {
@@ -20,35 +14,11 @@ public func selectReactionFillStaticColor(theme: PresentationTheme, wallpaper: T
         return theme.chat.message.freeform.withoutWallpaper.reactionStarsInactiveBackground
     }
     
-    if case .color = wallpaper {
-        return theme.chat.message.freeform.withoutWallpaper.reactionInactiveBackground
-    } else if theme.overallDarkAppearance {
-        return theme.chat.message.freeform.withoutWallpaper.reactionInactiveBackground
-    } else if case .builtin = wallpaper {
-        return UIColor(rgb: 0x748391, alpha: 0.45)
-    } else {
-        return .clear//theme.chat.serviceMessage.components.withCustomWallpaper.dateFillStatic
-    }
+    return UIColor(rgb: 0x748391, alpha: 0.45)
 }
 
 public func dateFillNeedsBlur(theme: PresentationTheme, wallpaper: TelegramWallpaper) -> Bool {
-    if !DeviceMetrics.performance.isGraphicallyCapable {
-        return false
-    }
-    
-    if case .builtin = wallpaper {
-        return false
-    } else if case .color = wallpaper {
-        return false
-    } else if case let .file(file) = wallpaper {
-        if file.isPattern, let intensity = file.settings.intensity, intensity < 0 {
-            return false
-        } else {
-            return true
-        }
-    } else {
-        return true
-    }
+    return false
 }
 
 public let defaultServiceBackgroundColor = UIColor(rgb: 0x000000, alpha: 0.2)
