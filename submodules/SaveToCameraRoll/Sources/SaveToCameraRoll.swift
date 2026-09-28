@@ -255,10 +255,16 @@ private func addAssetIdentifierToJPEG(_ imageData: Data, assetIdentifier: String
 private func addAssetIdentifierToVideo(inputURL: URL, outputURL: URL, assetIdentifier: String, completion: @escaping (Bool) -> Void) {
     let asset = AVAsset(url: inputURL)
 
-    guard let exportSession = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
+    guard let exportSessionValue = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
         completion(false)
         return
     }
+
+    #if compiler(>=6.0)
+    nonisolated(unsafe) let exportSession = exportSessionValue
+    #else
+    let exportSession = exportSessionValue
+    #endif
 
     let identifierItem = AVMutableMetadataItem()
     identifierItem.keySpace = .quickTimeMetadata
